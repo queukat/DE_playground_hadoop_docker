@@ -1,0 +1,295 @@
+version: '3'
+
+networks:
+  spark-hive-net:
+
+services:
+  namenode:
+    image: apache/hadoop:3
+    hostname: namenode
+    container_name: namenode
+    command: [ "hdfs", "namenode" ]
+    ports:
+      - 9870:9870
+    env_file:
+      - ./config
+    environment:
+      ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
+      HADOOP_HOME: /opt/hadoop
+      HADOOP_CONF_DIR: /etc/hadoop
+    volumes:
+      - ./spark-events:/tmp/spark-events
+      - ./hadoop-config:/etc/hadoop
+    networks:
+      - spark-hive-net
+
+  datanode:
+    image: apache/hadoop:3
+    hostname: datanode
+    container_name: datanode
+    command: [ "hdfs", "datanode" ]
+    ports:
+      - 9864:9864
+    env_file:
+      - ./config
+    environment:
+      HADOOP_HOME: /opt/hadoop
+      ENSURE_DATANODE_DIR: "/tmp/hadoop-root/dfs/data"
+      HADOOP_CONF_DIR: /etc/hadoop
+    volumes:
+      - ./spark-events:/tmp/spark-events
+      - ./hadoop-config:/etc/hadoop
+    networks:
+      - spark-hive-net
+    depends_on:
+      - namenode
+
+  resourcemanager:
+    image: apache/hadoop:3
+    hostname: resourcemanager
+    container_name: resourcemanager
+    command: [ "yarn", "resourcemanager" ]
+    ports:
+      - 8088:8088
+      - 8032:8032
+      - 8030:8030
+    env_file:
+      - ./config
+    environment:
+      HADOOP_HOME: /opt/hadoop
+      HADOOP_CONF_DIR: /etc/hadoop
+    volumes:
+      - ./spark-events:/tmp/spark-events
+      - ./test.sh:/opt/test.sh
+      - ./hadoop-config:/etc/hadoop
+    networks:
+      - spark-hive-net
+    depends_on:
+      - namenode
+
+  nodemanager:
+    image: apache/hadoop:3
+    hostname: nodemanager
+    container_name: nodemanager
+    command: [ "yarn", "nodemanager" ]
+    ports:
+      - 8042:8042
+      - 57020:57020
+    env_file:
+      - ./config
+    environment:
+      HADOOP_HOME: /opt/hadoop
+      HADOOP_CONF_DIR: /etc/hadoop
+    volumes:
+      - ./spark-events:/tmp/spark-events
+      - ./hadoop-config:/etc/hadoop
+      - ./yarn-logs:/var/log/hadoop-yarn/containers
+    networks:
+      - spark-hive-net
+    depends_on:
+      - namenode
+
+  postgres:
+    image: postgres:latest
+    hostname: postgres
+    container_name: postgres
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_USER: hive
+      POSTGRES_DB: metastore_db
+    ports:
+      - 5432:5432
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    networks:
+      - spark-hive-net
+
+  metastore:
+    image: apache/hive:4.0.0-alpha-2
+    hostname: metastore
+    container_name: metastore
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      HADOOP_CONF_DIR: /etc/hadoop
+    ports:
+      - 9083:9083
+    volumes:
+      - ./warehouse:/opt/hive/data/warehouse
+      - ./hive-config:/opt/hive/conf
+    networks:
+      - spark-hive-net
+    depends_on:
+      - postgres
+      - namenode
+
+  hiveserver2:
+    image: apache/hive:4.0.0-alpha-2
+    hostname: hiveserver2
+    container_name: hiveserver2
+    environment:
+      SERVICE_NAME: hiveserver2
+      IS_RESUME: "true"
+      HADOOP_CONF_DIR: /etc/hadoop
+    ports:
+      - 10000:10000
+    volumes:
+      - ./hive-config:/opt/hive/conf
+    networks:
+      - spark-hive-net
+    depends_on:
+      - metastore
+
+  mysql:
+    image: mysql:5.7
+    hostname: mysql
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: hue
+      MYSQL_USER: hue
+      MYSQL_PASSWORD: huepassword
+    ports:
+      - 3306:3306
+    volumes:
+     - ./mysql_data:/var/lib/mysql
+    networks:
+     - spark-hive-net
+
+  hue:
+    image: gethue/hue:20230711-140101
+    hostname: hue
+    container_name: hue
+    depends_on:
+      - mysql
+      - hiveserver2
+    environment:
+      HUE_DATABASE_PASSWORD: huepassword
+      HUE_DATABASE_HOST: mysql
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./hue.ini:/usr/share/hue/desktop/conf/hue.ini
+    networks:
+      - spark-hive-net
+
+  spark-master:
+    image: apache/spark:3.4.0
+    hostname: spark-master
+    container_name: spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
+    environment:
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      - SPARK_HOME=/opt/spark
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - YARN_CONF_DIR=/etc/hadoop
+      - SPARK_EVENTLOG_ENABLED=true
+      - SPARK_EVENTLOG_DIR=/tmp/spark-events
+      - SPARK_SHELL=/opt/spark/bin/spark-shell
+      - SPARK_SUBMIT=/opt/spark/bin/spark-submit
+      - PATH=/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/spark/bin
+    ports:
+      - 8080:8080
+      - 7077:7077
+      - 4046-4050:4046-4050
+    volumes:
+      - ./hadoop-config:/etc/hadoop
+      - ./spark-config:/opt/spark/conf
+      - ./jars/postgresql-42.2.5.jar:/opt/spark/jars/postgresql-42.2.5.jar
+      - ./jars/ojdbc8-21.9.0.0.jar:/opt/spark/jars/ojdbc8-21.9.0.0.jar
+      - ./jars/ucp-21.9.0.0.jar:/opt/spark/jars/ucp-21.9.0.0.jar
+      - ./jars/scala-logging_2.13-3.9.5.jar:/opt/spark/jars/scala-logging_2.13-3.9.5.jar
+      - ./spark-events:/tmp/spark-events
+    networks:
+      - spark-hive-net
+    depends_on:
+      - namenode
+      - datanode
+      - resourcemanager
+      - nodemanager
+      - metastore
+      - hiveserver2
+
+  spark-worker:
+    image: apache/spark:3.4.0
+    hostname: spark-worker
+    container_name: spark-worker
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
+    environment:
+      - SPARK_WORKER_WEBUI_PORT=8081
+      - SPARK_HOME=/opt/spark
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - YARN_CONF_DIR=/etc/hadoop
+      - SPARK_EVENTLOG_ENABLED=true
+      - SPARK_EVENTLOG_DIR=/tmp/spark-events
+      - SPARK_SHELL=/opt/spark/bin/spark-shell
+      - SPARK_SUBMIT=/opt/spark/bin/spark-submit
+      - PATH=/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/spark/bin
+    ports:
+      - 8081:8081
+      - 4040-4045:4040-4045
+    volumes:
+      - ./hadoop-config:/etc/hadoop
+      - ./spark-config:/opt/spark/conf
+      - ./jars/postgresql-42.2.5.jar:/opt/spark/jars/postgresql-42.2.5.jar
+      - ./jars/ojdbc8-21.9.0.0.jar:/opt/spark/jars/ojdbc8-21.9.0.0.jar
+      - ./jars/ucp-21.9.0.0.jar:/opt/spark/jars/ucp-21.9.0.0.jar
+      - ./jars/scala-logging_2.13-3.9.5.jar:/opt/spark/jars/scala-logging_2.13-3.9.5.jar
+      - ./spark-events:/tmp/spark-events
+    networks:
+      - spark-hive-net
+    depends_on:
+      - spark-master
+
+  livy:
+    image: asifkhatri/livy:spark3.4.0
+    container_name: livy
+    hostname: livy
+    environment:
+      - LIVY_SPARK_MASTER=spark://spark-master:7077
+      - SPARK_HOME=/opt/spark
+      - LIVY_CONF_DIR=/conf
+      - LIVY_LOG_DIR=/logs
+      - LIVY_FILE_LOCAL_DIR_WHITELIST=/opt/jars
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - YARN_CONF_DIR=/etc/hadoop
+      - SPARK_EVENTLOG_ENABLED=true
+      - SPARK_EVENTLOG_DIR=/tmp/spark-events
+    volumes:
+      - ./hadoop-config:/etc/hadoop
+      - ./spark-config:/opt/spark/conf
+      - ./spark-events:/tmp/spark-events
+      - ./conf/livy:/conf
+      - ./logs/livy:/logs
+      - ./jars/postgresql-42.2.5.jar:/opt/spark/jars/postgresql-42.2.5.jar
+      - ./jars/ojdbc8-21.9.0.0.jar:/opt/spark/jars/ojdbc8-21.9.0.0.jar
+      - ./jars/ucp-21.9.0.0.jar:/opt/spark/jars/ucp-21.9.0.0.jar
+      - ./jars/scala-logging_2.13-3.9.5.jar:/opt/spark/jars/scala-logging_2.13-3.9.5.jar
+    depends_on:
+      - spark-master
+      - spark-worker
+    networks:
+      - spark-hive-net
+
+  spark-history-server:
+    image: apache/spark:3.4.0
+    container_name: spark-history-server
+    hostname: spark-history-server
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
+    environment:
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - SPARK_HOME=/opt/spark
+      - YARN_CONF_DIR=/etc/hadoop
+    ports:
+      - 18080:18080
+    volumes:
+      - ./spark-config:/opt/spark/conf
+      - ./hadoop-config:/etc/hadoop
+      - /spark-events:/tmp/spark-events
+    depends_on:
+      - spark-master
+      - spark-worker
+    networks:
+      - spark-hive-net
