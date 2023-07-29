@@ -66,7 +66,11 @@ sqlplus sys/YourPassword@localhost:1521/ORCLCDB as sysdba
 
 ## Creating and Using Local Users in Oracle Database
 
-In Oracle Database 12c and later versions, you can create and use local users that are specific to a single Pluggable Database (PDB). However, to interact with a specific PDB as a local user, you need to set your session to that PDB. Here's how you can do it:
+In Oracle Database 12c and later versions, you can create and use local users that are specific to a single Pluggable Database (PDB). However, to interact with a specific PDB as a local user, you need to set your session to that PDB. 
+###### I DON'T LIKE THIS WAY, PREFER COMMON USERS
+Here's how you can do it:
+<details>
+<summary>Click to expand!</summary>
 
 1. __Connect to the database as a common user or as a local user with the necessary privileges. For example, you can connect as the SYS user or another common user that has the CREATE SESSION and ALTER SESSION privileges.__
 
@@ -90,11 +94,11 @@ GRANT CREATE SESSION TO local_user;
 sqlplus local_user/local_password@localhost:1521/YourPDB
 ```
 Remember, when you're working with local users, you always need to specify the PDB in your connection string. If you don't, you'll connect to the root container (CDB), where the local user doesn't exist.
-
+</details>
 
 Please note that the Oracle Database Docker image is only for non-production use. For production use, you need to use the Oracle Database software installed directly on a host system or in an Oracle VM or other virtualization environment.
 
-## Creating the SQL File:
+## Creating the SQL File with common user:
  
 Create an SQL file (for example, __'setup.sql'__) and add the following code:
 <details>
@@ -136,8 +140,15 @@ Please note that you need to replace the paths to the data files (__'/opt/oracle
 
 #### Next step:
 
+First SQL command creates a new __common__ user named C##TEST_USER. 
+- In Oracle Database 12c and later, there are two types of users: common users and local users. 
+Common users are users that have the same username and authentication across the entire CDB, including the root and all PDBs. 
+Their username must start with __'C##'__ or __'c##'__. Local users are users that exist in a single PDB.
+
+- Common users are typically used for administrative tasks that need to be performed across the entire CDB. However, they can also be useful for testing purposes, as they allow you to perform operations in multiple PDBs without having to switch between different local users.
+
 ```sql
--- Creating an Oracle User
+-- Creating an Oracle common User
 CREATE USER C##TEST_USER IDENTIFIED BY MyOraclePassword123;
 
 -- Granting Privileges to the User
@@ -177,7 +188,7 @@ BEGIN
         col_int2 INTEGER,
         col_boolean1 NUMBER(1),
         col_boolean2 NUMBER(1)
-    )';
+    )"TABLESPACE test_ts"';
 
     -- Populating the Table with Data
     FOR i IN 1..2000000 LOOP
@@ -218,7 +229,8 @@ END;
 /
 ```
 </details>
-This SQL file creates a user __'C##TEST_USER'__, grants them all the privileges that the __'SYSTEM'__ user has, creates a table __'big_table_new'__, and populates it with random data.
+
+This SQL file creates a user __'C##TEST_USER'__ , grants them all the privileges that the __'SYSTEM'__ user has, creates a table __'big_table_new'__, and populates it with random data.
 
 __Note:__ To execute this SQL file, you need to connect to the Oracle Database running in the Docker container. You can use Oracle SQL Developer or any other tool that supports Oracle Database connections.
 
