@@ -1,5 +1,9 @@
 # DE_playground_hadoop_docker
 
+<!-- public-repo-status -->
+> Status: Legacy/reference. This repository is kept public for learning and examples, but it is not actively supported. Issues and pull requests are disabled unless support is reopened.
+
+
 ## Description:
 This project provides a ready-to-use solution for setting up a data engineering playground. It is ideal for data engineers who want to test their applications or for beginners who want to learn and experiment in a real-world-like environment.
 
